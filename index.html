@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>កម្មវិធីតាមដានទីតាំងផ្ទាល់ - Real-Time Location Tracker</title>
+    <meta name="description" content="កម្មវិធីតាមដានទីតាំងផ្ទាល់ Real-Time GPS Tracking Website គាំទ្រ Google Maps API និងការចែករំលែកទីតាំងគ្នាទៅវិញទៅមក">
+
+    <!-- Google Fonts: Plus Jakarta Sans & Kantumruy Pro for Khmer -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS (Fallback & Vector/Satellite Tile Engine) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Application Stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- External Libraries -->
+    <!-- MQTT for Real-Time Cross-Device WebSocket Sync -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- QRCode Generator for Mobile Phone Camera Scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+    <!-- MAP CONTAINER -->
+    <main id="map-viewport">
+        <div id="map"></div>
+    </main>
+
+    <!-- TOP FLOATING HEADER BAR -->
+    <header class="top-header-bar glass-panel">
+        <div class="header-left">
+            <div class="brand-icon-box">
+                <i data-lucide="radar"></i>
+            </div>
+            <div class="brand-titles">
+                <h1 data-i18n="app_title">កម្មវិធីតាមដានទីតាំងផ្ទាល់</h1>
+                <p data-i18n="app_subtitle">Real-Time Mutual GPS Tracking</p>
+            </div>
+        </div>
+
+        <div class="header-center">
+            <!-- Live Status Dot -->
+            <div class="live-pill">
+                <span id="status-indicator-dot" class="status-dot online"></span>
+                <span id="status-indicator-text" class="live-text" data-i18n="live_status">ផ្សាយផ្ទាល់</span>
+            </div>
+
+            <!-- Room ID Chip -->
+            <div id="copy-room-btn" class="room-chip" title="ចុចដើម្បីចម្លងលេខបន្ទប់">
+                <i data-lucide="hash" style="width:14px; height:14px; color: var(--accent-cyan);"></i>
+                <span data-i18n="room_label">បន្ទប់:</span>
+                <span id="room-id-display" class="room-code">TRACK-....</span>
+                <i data-lucide="copy" style="width:13px; height:13px; color: var(--text-muted);"></i>
+            </div>
+
+            <!-- Map Provider Badge -->
+            <span id="map-provider-badge" class="badge google-badge">Google Maps Live</span>
+        </div>
+
+        <div class="header-right">
+            <!-- Map Style Selector (100% Real Google Maps) -->
+            <select id="map-style-select" class="map-style-select" title="Map Layer">
+                <option value="dark">🌙 Google Cyber Dark</option>
+                <option value="light">🗺️ Google Standard</option>
+                <option value="satellite">🛰️ Google Satellite Hybrid</option>
+                <option value="terrain">⛰️ Google Topo Terrain</option>
+                <option value="traffic">🚦 Google Live Traffic</option>
+            </select>
+
+            <!-- Share / QR Button -->
+            <button id="share-btn" class="btn-action btn-cyan" title="ចែករំលែកតំណភ្ជាប់">
+                <i data-lucide="share-2"></i>
+                <span data-i18n="share_btn">ចែករំលែក</span>
+            </button>
+
+            <!-- SOS Emergency Alert Button -->
+            <button id="sos-btn" class="btn-action btn-sos" title="សញ្ញាអាសន្ន">
+                <i data-lucide="alert-triangle"></i>
+                <span data-i18n="sos_btn">SOS</span>
+            <!-- Audio Toggle Button -->
+            <button id="audio-toggle-btn" class="btn-action icon-only" title="បើក/បិទ សំឡេង">
+                <i data-lucide="volume-2"></i>
+            </button>
+
+            <!-- Settings Button -->
+            <button id="settings-btn" class="btn-action icon-only" title="ការកំណត់ / Google Maps Key">
+                <i data-lucide="settings"></i>
+            </button>
+
+            <!-- Language Switcher -->
+            <button id="lang-toggle-btn" class="btn-action icon-only" onclick="app.toggleLanguage()" title="ប្តូរភាសា">
+                EN
+            </button>
+        </div>
+    </header>
+
+    <!-- FLOATING GPS PERMISSION & CONTINUOUS LOCK BANNER -->
+    <div id="gps-banner" class="gps-request-banner" onclick="app.requestGPSPermission()">
+        <i data-lucide="navigation-2" style="width:20px; height:20px;"></i>
+        <span>📍 ចុចត្រង់នេះដើម្បីចាប់យកទីតាំង GPS ផ្ទាល់លើឧបករណ៍នេះ (Tap to Enable Live GPS)</span>
+    </div>
+
+    <!-- SIDEBAR / ROSTER PANEL -->
+    <aside id="sidebar-drawer" class="sidebar-panel glass-panel">
+        <div class="drawer-handle mobile-only" id="drawer-toggle-btn"></div>
+        <div class="panel-header">
+            <div class="panel-title-group">
+                <i data-lucide="users" style="width:18px; height:18px; color: var(--accent-cyan);"></i>
+                <span data-i18n="active_users">អ្នកកំពុងតាមដានផ្ទាល់</span>
+                <span id="members-count-badge" class="counter-badge">1</span>
+            </div>
+            <button class="icon-btn-micro" onclick="app.mapManager.fitAllMarkers()" title="ពង្រីកមើលទាំងអស់">
+                <i data-lucide="maximize-2"></i>
+            </button>
+        </div>
+
+        <!-- Participants List -->
+        <div id="active-users-list" class="roster-scroll">
+            <!-- Populated dynamically via app.js -->
+        </div>
+
+        <!-- Simulator & Companion Controls -->
+        <div class="sim-controls-card">
+            <div class="sim-toggle-row">
+                <span class="sim-toggle-label" data-i18n="drive_companion">បើកមិត្តភក្តិសាកល្បង (Dara)</span>
+                <label class="switch">
+                    <input type="checkbox" id="companion-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted);" data-i18n="click_map_teleport">
+                💡 ជំនួយ: ចុចលើផែនទីដើម្បីផ្លាស់ប្តូរទីតាំងសាកល្បងបាន!
+            </div>
+        </div>
+    </aside>
+
+    <!-- TARGET / DISTANCE INSPECTOR CARD (Shown when user is clicked) -->
+    <div id="target-stats-card" class="target-stats-card glass-panel hidden">
+        <div class="target-header-row">
+            <div id="target-avatar" class="target-avatar-emoji">🛵</div>
+            <div class="target-title-block">
+                <h3 id="target-name">Dara</h3>
+                <span data-i18n="moving">កំពុងធ្វើដំណើរ</span>
+            </div>
+        </div>
+        <div class="target-metrics-grid">
+            <div class="target-metric-item">
+                <div id="target-distance-val" class="val">--</div>
+                <div class="lbl" data-i18n="distance">ចម្ងាយ</div>
+            </div>
+            <div class="target-metric-item">
+                <div id="target-eta-val" class="val">--</div>
+                <div class="lbl" data-i18n="eta">មកដល់</div>
+            </div>
+            <div class="target-metric-item">
+                <div id="target-speed-val" class="val">--</div>
+                <div class="lbl" data-i18n="speed">ល្បឿន</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM FLOATING HUD CONTROLS -->
+    <section class="bottom-hud-bar glass-panel">
+        <!-- Self Stats -->
+        <div class="hud-stat-pill">
+            <span id="my-avatar-display" style="font-size:18px;">🚗</span>
+            <span id="my-name-display" style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">You</span>
+        </div>
+
+        <div class="hud-stat-pill">
+            <i data-lucide="gauge" style="width:16px; height:16px; color: var(--accent-cyan);"></i>
+            <span id="hud-speed-val">0</span>
+            <span class="unit" data-i18n="kmh">km/h</span>
+        </div>
+
+        <div class="hud-stat-pill">
+            <i data-lucide="target" style="width:16px; height:16px; color: var(--accent-emerald);"></i>
+            <span id="hud-accuracy-val">±10m</span>
+        </div>
+
+        <div class="hud-stat-pill">
+            <i data-lucide="battery" style="width:16px; height:16px; color: var(--accent-amber);"></i>
+            <span id="hud-battery-val">95%</span>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="hud-actions">
+            <!-- Center on Me -->
+            <button id="recenter-me-btn" class="hud-btn icon-circle" title="ទីតាំងរបស់ខ្ញុំ">
+                <i data-lucide="locate"></i>
+            </button>
+
+            <!-- Auto-Follow Mode -->
+            <button id="auto-follow-btn" class="hud-btn" title="តាមដានខ្ញុំជាប់ (Auto-Follow)">
+                <i data-lucide="compass"></i>
+                <span data-i18n="follow_me">តាមដានខ្ញុំជាប់</span>
+            </button>
+
+            <!-- Fit All -->
+            <button id="fit-all-btn" class="hud-btn icon-circle" title="មើលទាំងអស់">
+                <i data-lucide="maximize"></i>
+            </button>
+
+            <!-- Simulate Movement Button -->
+            <button id="simulate-self-btn" class="hud-btn" title="សាកល្បងចលនា">
+                <i data-lucide="play"></i>
+                <span data-i18n="simulate_btn">សាកល្បងចលនា</span>
+            </button>
+        </div>
+    </section>
+
+    <!-- SETTINGS & GOOGLE MAPS API KEY MODAL -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <i data-lucide="sliders" style="color: var(--accent-cyan);"></i>
+                    <h2 data-i18n="settings">ការកំណត់</h2>
+                </div>
+                <button class="modal-close-btn" onclick="app.closeModal('settings-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Google Maps API Key Group -->
+                <div class="form-group">
+                    <label class="form-label" data-i18n="google_api_key">Google Maps API Key</label>
+                    <p class="form-desc" data-i18n="google_api_desc">
+                        បញ្ចូល Google Maps API Key របស់អ្នកដើម្បីបើកដំណើរការ Google Maps ផ្ទាល់ពេញលេញ។
+                    </p>
+                    <input type="text" id="google-api-key-input" class="form-input" data-i18n-ph="google_key_placeholder" placeholder="បិទភ្ជាប់ Google Maps API Key នៅទីនេះ...">
+                </div>
+
+                <!-- User Name -->
+                <div class="form-group">
+                    <label class="form-label" data-i18n="enter_name">ឈ្មោះរបស់អ្នក</label>
+                    <input type="text" id="settings-user-name" class="form-input" placeholder="Your Name">
+                </div>
+
+                <!-- Avatar Selection -->
+                <div class="form-group">
+                    <label class="form-label" data-i18n="choose_avatar">ជ្រើសរើសរូបតំណាង</label>
+                    <div id="avatar-picker-grid" class="picker-grid">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Color Selection -->
+                <div class="form-group">
+                    <label class="form-label" data-i18n="choose_color">ពណ៌សម្គាល់</label>
+                    <div id="color-picker-grid" class="picker-grid">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-action" onclick="app.closeModal('settings-modal')" data-i18n="cancel_btn">បោះបង់</button>
+                <button id="save-settings-btn" class="btn-action btn-cyan" data-i18n="save_btn">រក្សាទុក</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHARE & QR CODE MODAL -->
+    <div id="qr-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <i data-lucide="qr-code" style="color: var(--accent-cyan);"></i>
+                    <h2 data-i18n="share_btn">ចែករំលែកតំណភ្ជាប់</h2>
+                </div>
+                <button class="modal-close-btn" onclick="app.closeModal('qr-modal')">&times;</button>
+            </div>
+            <div class="modal-body qr-container">
+                <p style="text-align: center; color: var(--text-secondary); font-size: 13px;" data-i18n="share_prompt">
+                    សូមផ្ញើតំណភ្ជាប់នេះទៅមិត្តភក្តិដើម្បីតាមដានទីតាំងគ្នាទៅវិញទៅមក!
+                </p>
+
+                <!-- QR Canvas -->
+                <div class="qr-canvas-box">
+                    <canvas id="qr-canvas"></canvas>
+                </div>
+                <span style="font-size: 11px; color: var(--text-muted);" data-i18n="scan_qr">ស្កេន QR Code ជាមួយទូរស័ព្ទ</span>
+
+                <!-- Share Link Copy Group -->
+                <div class="qr-input-group">
+                    <input type="text" id="qr-share-url-text" class="form-input" readonly>
+                    <button class="btn-action btn-cyan" onclick="app.copyShareLink()">
+                        <i data-lucide="copy"></i>
+                        <span data-i18n="copy_room">ចម្លង</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-action" onclick="app.closeModal('qr-modal')" data-i18n="cancel_btn">បិទ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST POPUP NOTIFICATION -->
+    <div id="toast" class="toast-bubble">Notification</div>
+
+    <!-- APPLICATION SCRIPTS -->
+    <script src="js/config.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/simulator.js"></script>
+    <script src="js/map-manager.js"></script>
+    <script src="js/tracker-network.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- Initialize Lucide Icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
+</body>
+</html>
